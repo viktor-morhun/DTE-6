@@ -24,7 +24,7 @@ export default function QuestionsPage() {
   };
 
   const handleReasonSelect = (reason: string) => {
-    if (reason === "I\’m coming off a breakthrough.") {
+    if (reason === "I just suffered a setback.") {
       setSelectedReason(reason);
       // Navigate to modal after completing all questions
       router.push('/modal');
