@@ -9,8 +9,8 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "DTE-4",
-  description: "DTE-4 Protect the Source",
+  title: "DTE-6",
+  description: "DTE-6 Your Competitor Identity",
   icons: {
     icon: [
       { url: "/web-app-manifest-192x192.png", sizes: "192x192" },
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "DTE-4",
+    title: "DTE-6",
   },
 };
 
