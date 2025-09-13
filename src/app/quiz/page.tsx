@@ -1,7 +1,7 @@
-"use client"
-
-import { useState } from "react";
+"use client";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import BackButton from "@/components/ui/BackButton";
 import TextArea from "@/components/ui/TextArea";
 import Button from "@/components/ui/Button";
@@ -9,44 +9,89 @@ import Button from "@/components/ui/Button";
 export default function QuestionsPage() {
   const router = useRouter();
   const [currentSlide, setCurrentSlide] = useState(1);
-  const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
-  const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
-  const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [textAnswer, setTextAnswer] = useState<string>("");
-
-  const handleThemeSelect = (theme: string) => {
-    setSelectedTheme(theme);
-    setCurrentSlide(2);
+  const [progress, setProgress] = useState(1);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [showResults, setShowResults] = useState(false);
+  const [animationTrigger, setAnimationTrigger] = useState(0);
+  const [isFirstAnswerCorrect, setIsFirstAnswerCorrect] = useState<boolean | null>(null);
+  
+  // Define correct answers (0-indexed)
+  const correctAnswers = {
+    1: 1, // Second option is correct for question 1
   };
 
-  const handleLevelSelect = (level: number) => {
-    if (level <= 3) {
-      setSelectedLevel(level);
-      setCurrentSlide(3);
+  const handleAnswerClick = (answerIndex: number) => {
+    if (showResults) return; // Prevent multiple clicks
+
+    setSelectedAnswer(answerIndex);
+    setShowResults(true);
+    setAnimationTrigger((prev) => prev + 1); // Trigger animation
+    
+    // Save first question result
+    if (currentSlide === 1) {
+      setIsFirstAnswerCorrect(correctAnswers[1] === answerIndex);
     }
+
+    // Auto-advance after 1.5 seconds
+    setTimeout(() => {
+      setCurrentSlide(2);
+      setProgress(2);
+      // Reset for next question
+      setSelectedAnswer(null);
+      setShowResults(false);
+      setAnimationTrigger(0);
+    }, 1500);
   };
 
   const handleTextSubmit = () => {
     if (textAnswer.trim()) {
-      router.push('/score');
-    }
-  };
-
-  const handleReasonSelect = (reason: string) => {
-    if (reason === "I\'m feeling off or unmotivated.") {
-      setSelectedReason(reason);
-      // Navigate to modal after completing all questions
-      router.push('/modal');
+      // Create query params based on quiz results
+      const params = new URLSearchParams({
+        firstAnswer: isFirstAnswerCorrect ? 'correct' : 'incorrect',
+        hasTextAnswer: 'true'
+      });
+      
+      router.push(`/score?${params.toString()}`);
     }
   };
 
   const handleBack = () => {
     if (currentSlide === 1) {
-      router.push('/notification');
+      router.push("/modal-finish");
     } else {
       setCurrentSlide(currentSlide - 1);
+      setProgress(1);
     }
   };
+
+  const handleTextChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const value = e.target.value;
+      setTextAnswer(value);
+
+      // Устанавливаем прогресс только при переходах между состояниями
+      if (value.trim() && progress < 4) {
+        setProgress(4);
+      } else if (!value.trim() && progress === 4) {
+        setProgress(3);
+      }
+    },
+    [progress]
+  );
+
+  const handleTextFocus = useCallback(() => {
+    if (progress < 3) {
+      setProgress(3);
+    }
+  }, [progress]);
+
+  const handleTextBlur = useCallback(() => {
+    // При расфокусе уменьшаем прогресс до 2, если нет текста
+    if (!textAnswer.trim() && progress > 2) {
+      setProgress(2);
+    }
+  }, [textAnswer, progress]);
 
   return (
     <div className="w-full h-full flex justify-center">
@@ -58,10 +103,9 @@ export default function QuestionsPage() {
 
         <div className="relative z-10 h-dvh px-4 pt-[1rem] pb-[3.125rem]">
           <div className="h-full w-full flex flex-col">
-
-            <div className='flex gap-[0.938rem] mb-[3.375rem] items-center'>
+            <div className="flex gap-[0.938rem] mb-[3.375rem] items-center">
               <BackButton onClick={handleBack} />
-              <span className='font-bold text-2xl'>Execute</span>
+              <span className="font-bold text-2xl">Execute</span>
             </div>
 
             {/* Progress Bar */}
@@ -69,49 +113,107 @@ export default function QuestionsPage() {
               <div className="w-full h-[10px] bg-white/10 rounded-[12px] overflow-hidden">
                 <div
                   className="h-full bg-white rounded-[12px] transition-all duration-300 ease-out"
-                  style={{ width: `${(currentSlide / 2) * 100}%` }}
+                  style={{ width: `${(progress / 4) * 100}%` }}
                 />
               </div>
             </div>
 
-            {/* Slide 1: Theme Selection */}
             {currentSlide === 1 && (
               <div className="flex-1 flex flex-col">
                 <div className="mb-[30px] min-h-[44px]">
-                  <h2 className="text-[20px] leading-[24px] font-medium text-white">True or False: Confidence only comes after everything goes perfectly.</h2>
+                  <h2 className="text-[20px] leading-[24px] font-medium text-white">
+                  True or False: Confidence only comes after everything goes perfectly.
+                  </h2>
                 </div>
 
                 <div className="flex-1 flex flex-col gap-3">
-                  <button
-                    onClick={() => handleThemeSelect('True')}
-                    className="w-full flex items-center justify-center h-[60px] bg-[#FFFFFF0A] active:bg-[#FFFFFF26] border border-[#FFFFFF33] rounded-[30px] text-white transition-all"
-                  >
-                    <span className="text-[18px] font-medium">True</span>
-                  </button>
+                  {[
+                    "True",
+                    "False",
+                  ].map((answer, index) => {
+                    const isSelected = selectedAnswer === index;
+                    const isCorrect = correctAnswers[1] === index;
+                    const isWrong = showResults && isSelected && !isCorrect;
+                    const shouldHighlight =
+                      showResults && isCorrect && selectedAnswer !== null;
 
-                  <button
-                    onClick={() => handleThemeSelect('False')}
-                    className="w-full flex items-center justify-center h-[60px] bg-[#FFFFFF0A] active:bg-[#FFFFFF26] border border-[#FFFFFF33] rounded-[30px] text-white transition-all"
-                  >
-                    <span className="text-[18px] font-medium">False</span>
-                  </button>
+                    let buttonClass =
+                      "w-full flex items-center pl-5 h-[60px] bg-[#FFFFFF0A] border rounded-[30px] transition-all duration-300";
+
+                    let textColor = "#FFFFFF"; 
+                    let borderColor = "#FFFFFF33"; 
+
+                    if (showResults) {
+                      if (isCorrect) {
+                        borderColor = "#B2FF8B";
+                      } else if (isWrong) {
+                        borderColor = "#F97066";
+                        textColor = "#F97066";
+                      } else {
+                        borderColor = "#FFFFFF33";
+                        textColor = "#FFFFFF";
+                      }
+                    } else {
+                      buttonClass += " active:bg-[#FFFFFF26]";
+                    }
+
+                    return (
+                      <motion.button
+                        key={`${index}-${animationTrigger}`}
+                        onClick={() => handleAnswerClick(index)}
+                        className={buttonClass}
+                        style={{
+                          borderColor: borderColor,
+                          color: textColor,
+                        }}
+                        animate={
+                          isWrong && animationTrigger > 0
+                            ? {
+                                x: [0, -15, 15, -15, 15, -10, 10, 0],
+                                transition: {
+                                  duration: 0.5,
+                                  times: [
+                                    0, 0.15, 0.25, 0.4, 0.55, 0.7, 0.85, 1,
+                                  ],
+                                  ease: "easeInOut",
+                                },
+                              }
+                            : shouldHighlight && animationTrigger > 0
+                            ? {
+                                scale: [1, 1.15, 1.1, 1],
+                                transition: {
+                                  duration: 0.5,
+                                  times: [0, 0.4, 0.8, 1],
+                                  ease: "easeInOut",
+                                },
+                              }
+                            : {}
+                        }
+                        disabled={showResults}
+                      >
+                        <span className="text-[16px]">{answer}</span>
+                      </motion.button>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
-            {/* Slide 2: High/Low Route Selection */}
             {currentSlide === 2 && (
               <div className="flex-1 flex flex-col relative">
                 <div className="mb-[30px] min-h-[44px]">
                   <h2 className="text-[20px] leading-[24px] font-medium text-white">
-                    Why does the way you respond after setbacks reveal your competitor identity?
+                    Why does the way you respond after setbacks reveal your
+                    competitor identity?
                   </h2>
                 </div>
 
                 <div className="flex-1 flex flex-col">
                   <TextArea
                     value={textAnswer}
-                    onChange={(e) => setTextAnswer(e.target.value)}
+                    onChange={handleTextChange}
+                    onFocus={handleTextFocus}
+                    onBlur={handleTextBlur}
                     placeholder="Type your answer here..."
                     className="mb-4"
                   />
@@ -126,11 +228,6 @@ export default function QuestionsPage() {
                 </Button>
               </div>
             )}
-
-
-
-
-
           </div>
         </div>
       </div>
