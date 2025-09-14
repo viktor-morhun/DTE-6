@@ -1,66 +1,75 @@
 "use client";
-
-import { useEffect, useRef, useState } from "react";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Pagination, Mousewheel, Keyboard } from "swiper/modules";
-import type { Swiper as SwiperType } from "swiper";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Swiper as SwiperComponent, SwiperSlide } from "swiper/react";
+import type Swiper from "swiper";
+import { Mousewheel } from "swiper/modules";
 import { twMerge } from "tailwind-merge";
-
+import FlashcardSlide from "./FlashCardSlide";
 import "swiper/css";
-import "swiper/css/pagination";
-import FlashCardSlide from "./FlashCardSlide";
-import SwipeIcon from "./icons/SwipeIcon";
 
 export type FlashcardsContent = {
   id: string;
-  type: "video" | "timer" | "text" | "input" | "audio";
+  type: "video" | "timer" | "text" | "input";
   title?: string;
   content?: string;
   videoUrl?: string;
   audioUrl?: string;
-  posterUrl?: string;
   backgroundImage?: string;
+  groupId?: string;
+  showTimerAfterVideo?: boolean;
+  showInputAfterVideo?: boolean;
+  timerDuration?: number;
 };
 
 type FlashcardsProps = {
   cards: FlashcardsContent[];
   onComplete?: () => void;
   onSlideChange?: (index: number) => void;
+  onVideoEnded?: (cardId: string) => void;
   className?: string;
 };
+
+/** строим соответствие: индекс слайда -> логический индекс шага */
+function buildLogicalMap(cards: FlashcardsContent[]) {
+  const steps: { key: string; indices: number[] }[] = [];
+  for (let i = 0; i < cards.length; i++) {
+    const k = cards[i].groupId ?? cards[i].id;
+    const last = steps[steps.length - 1];
+    if (last && last.key === k) last.indices.push(i);
+    else steps.push({ key: k, indices: [i] });
+  }
+  const logicalIndexBySlide = new Array<number>(cards.length);
+  steps.forEach((s, idx) => s.indices.forEach(i => (logicalIndexBySlide[i] = idx)));
+  return { logicalIndexBySlide, totalSteps: steps.length };
+}
 
 export default function Flashcards({
   cards,
   onComplete,
   onSlideChange,
+  onVideoEnded,
   className,
 }: FlashcardsProps) {
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [userInput, setUserInput] = useState("");
-  const [swiperInstance, setSwiperInstance] = useState<SwiperType | null>(null);
-  const [audioStarted, setAudioStarted] = useState(false);
-  const [videoStarted, setVideoStarted] = useState(false);
+  const [swiperInstance, setSwiperInstance] = useState<Swiper | null>(null);
 
-  // ===== SFX swipe =====
+  // ===== swipe SFX =====
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sfxRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
   const skipFirstSlideChangeRef = useRef(true);
 
   useEffect(() => {
-    // подгружаем короткий звук свайпа (положи файл в /public/swipe.mp3)
     const a = new Audio("/swipe.mp3");
     a.preload = "auto";
     a.volume = 0.45;
     sfxRef.current = a;
     return () => {
-      if (sfxRef.current) {
-        // на всякий случай останавливаем
-        try {
-          sfxRef.current.pause();
-        } catch {}
-        sfxRef.current = null;
-      }
+      try {
+        sfxRef.current?.pause();
+      } catch {}
+      sfxRef.current = null;
     };
   }, []);
 
@@ -69,18 +78,17 @@ export default function Flashcards({
     if (!root) return;
 
     const unlockOnce = async () => {
-      if (audioUnlockedRef.current || !sfxRef.current) return;
+      if (audioUnlockedRef.current) return;
       try {
-        // короткий «тихий» запуск для разблокировки в iOS
-        sfxRef.current.muted = true;
-        await sfxRef.current.play();
-        sfxRef.current.pause();
-        sfxRef.current.currentTime = 0;
-        sfxRef.current.muted = false;
+        const a = sfxRef.current;
+        if (!a) return;
+        a.muted = true;
+        await a.play();
+        a.pause();
+        a.currentTime = 0;
+        a.muted = false;
         audioUnlockedRef.current = true;
-      } catch {
-        // ignore — попробуем ещё на следующий жест
-      }
+      } catch {}
     };
 
     const onPointerDown = () => unlockOnce();
@@ -90,7 +98,6 @@ export default function Flashcards({
     root.addEventListener("pointerdown", onPointerDown, { passive: true });
     root.addEventListener("wheel", onWheel, { passive: true });
     root.addEventListener("keydown", onKeyDown);
-
     return () => {
       root.removeEventListener("pointerdown", onPointerDown);
       root.removeEventListener("wheel", onWheel);
@@ -103,30 +110,18 @@ export default function Flashcards({
     if (!a) return;
     try {
       a.currentTime = 0;
-      // не используем await, чтобы не блокировать UI
       void a.play().catch(() => {});
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  const handleSlideChange = (swiper: SwiperType) => {
+  const { logicalIndexBySlide, totalSteps } = useMemo(
+    () => buildLogicalMap(cards),
+    [cards]
+  );
+
+  const handleSlideChange = (swiper: Swiper) => {
     setCurrentCardIndex(swiper.activeIndex);
     onSlideChange?.(swiper.activeIndex);
-    
-    // Reset audio and video started states when changing slides
-    setAudioStarted(false);
-    setVideoStarted(false);
-    
-    // For audio cards, simulate audio start after a short delay
-    const newCard = cards[swiper.activeIndex];
-    if (newCard?.type === "audio") {
-      setTimeout(() => {
-        setAudioStarted(true);
-      }, 1500); // Show swipe icon after 1.5 seconds for audio cards
-    }
-
-    // Пропускаем первый вызов, чтобы не сыграть звук на инициализации
     if (skipFirstSlideChangeRef.current) {
       skipFirstSlideChangeRef.current = false;
       return;
@@ -134,112 +129,44 @@ export default function Flashcards({
     playSwipeSfx();
   };
 
-  const handleSlideChangeTransitionEnd = (swiper: SwiperType) => {
-    // If we've swiped past the last slide, navigate to completion page
-    if (swiper.activeIndex >= cards.length) {
-      onComplete?.();
-    }
-  };
-
-  const handleTouchEnd = (swiper: SwiperType) => {
-    // Only navigate to next page if we're on the last slide and trying to swipe further
-    if (swiper.activeIndex === cards.length - 1) {
-      const translate = swiper.translate;
-      const maxTranslate = swiper.maxTranslate();
-      
-      // If user swiped beyond the last slide
-      if (translate < maxTranslate - 50) {
-        setTimeout(() => {
-          onComplete?.();
-        }, 200);
-      }
-    }
-  };
+  const handleComplete = () => onComplete?.();
 
   if (!cards.length) return null;
-
-  const activeCard = cards[currentCardIndex];
-  // если на input-карточке виден Submit, приподнимем иконку
-  const showSubmit =
-    activeCard?.type === "input" && userInput.trim().length > 0;
-
-  // Show swipe icon logic: exclude input cards
-  // For audio cards, only show after audio started and only on first 2 slides
-  // For video cards, show after video started on any slide
-  // For other card types, show only on first 2 slides
-  // Always show on last slide (4th slide) for navigation to next page
-  const shouldShowSwipe = activeCard?.type !== "input" && (
-    (activeCard?.type === "audio" && audioStarted && currentCardIndex <= 1) ||
-    (activeCard?.type === "video" && videoStarted) ||
-    (activeCard?.type !== "audio" && activeCard?.type !== "video" && currentCardIndex <= 1) ||
-    (currentCardIndex === cards.length - 1) // Always show on the 4th (last) slide
-  );
 
   return (
     <section
       ref={containerRef}
       className={twMerge("h-full outline-none", className)}
-      // чтобы ловить keydown для разблокировки — делаем контейнер focusable
       tabIndex={0}
     >
-      <Swiper
-        direction='vertical'
-        slidesPerView={1}
+      <SwiperComponent
+        direction="vertical"
         spaceBetween={0}
-        mousewheel={{ enabled: true, forceToAxis: true }}
-        keyboard={{ enabled: true }}
-        modules={[Pagination, Mousewheel, Keyboard]}
+        slidesPerView={1}
+        modules={[Mousewheel]}
+        mousewheel={true}
         onSwiper={setSwiperInstance}
         onSlideChange={handleSlideChange}
-        onSlideChangeTransitionEnd={handleSlideChangeTransitionEnd}
-        onTouchEnd={handleTouchEnd}
-        onReachEnd={() => {
-          // Only navigate if we're on the last slide (index 3 for 4 slides)
-          if (currentCardIndex === cards.length - 1) {
-            setTimeout(() => {
-              onComplete?.();
-            }, 300);
-          }
-        }}
-        className='h-full'
-        style={
-          {
-            "--swiper-pagination-color": "#ffffff",
-            "--swiper-pagination-bullet-inactive-color": "#ffffff40",
-          } as React.CSSProperties
-        }
+        className="h-full"
       >
-        {cards.map((card, index) => (
-          <SwiperSlide key={card.id} className='h-full px-4'>
-            <FlashCardSlide
+        {cards.map((card, idx) => (
+          <SwiperSlide key={card.id}>
+            <FlashcardSlide
               card={card}
-              isActive={index === currentCardIndex}
-              index={index}
+              isActive={idx === currentCardIndex}
+              index={idx}
               cardsLength={cards.length}
               userInput={userInput}
               onUserInputChange={setUserInput}
               swiper={swiperInstance}
-              onComplete={onComplete}
-              onAudioStart={() => setAudioStarted(true)}
-              onVideoStart={() => setVideoStarted(true)}
+              onComplete={handleComplete}
+              progressIndex={logicalIndexBySlide[idx]}
+              progressLength={totalSteps}
+              onVideoEnded={onVideoEnded}
             />
           </SwiperSlide>
         ))}
-      </Swiper>
-
-      {/* Глобальная свайп-иконка: всегда поверх, центр по ширине */}
-      {shouldShowSwipe && (
-        <div
-          className='pointer-events-none fixed z-[1001] left-0 right-0 flex justify-center'
-          style={{
-            bottom: `calc(env(safe-area-inset-bottom, 0px) + ${
-              showSubmit ? 86 : 18
-            }px)`,
-          }}
-        >
-          <SwipeIcon />
-        </div>
-      )}
+      </SwiperComponent>
     </section>
   );
 }
