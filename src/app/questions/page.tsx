@@ -13,9 +13,7 @@ export default function QuestionsPage() {
 
   const handleThemeSelect = (theme: string) => {
     setSelectedTheme(theme);
-    if (theme === "Drive") {
       setCurrentSlide(2);
-    }
   };
 
   const handleLevelSelect = (level: number) => {
@@ -87,7 +85,7 @@ export default function QuestionsPage() {
 
                   <button
                     onClick={() => handleThemeSelect("Drive")}
-                    className="w-full flex items-center justify-center h-[60px] bg-[#FFFFFF26] active:bg-[#FFFFFF26] border border-[#FFFFFF33] rounded-[30px] text-white transition-all"
+                    className="w-full flex items-center justify-center h-[60px] bg-[#FFFFFF0A] active:bg-[#FFFFFF26] border border-[#FFFFFF33] rounded-[30px] text-white transition-all"
                   >
                     <span className="text-[18px] font-medium">Drive</span>
                   </button>
